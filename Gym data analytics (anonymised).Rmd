@@ -1,0 +1,682 @@
+---
+title: "Gym data analytics (anonymised)"
+author: "O Wang Marcus Cheung"
+date: "2026-07-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# NOTE: If using this for personal use, please look at instances where the words "manual" or "anonymised" are present
+# "Manual" indicates instances where the program needs to be manually changed based on personal needs of different datasets
+# "Anonymised" indicates lines of code that have been changed, preventing the actual code from working to prevent personal information leaks, and is mainly applicable to the initial setwd() line and the assigning of the data from the data file. When one's own working directory and data as appropriate are used instead the code should work
+
+# Plan:
+# 1) Import data
+# 2) Clean data, account for missing data points and other issues
+# 3) Extract individual "Sets" for each data point and find the average
+# 4) Put weights data and sets data together
+# 5) Carry out data visualisation
+# 6) Statistics
+# 7) Final outputs (Parts 5 and 6)
+
+```{r}
+
+# Part 1: Importing data
+
+# Anonymised
+setwd("*YOUR WORKING DIRECTORY HERE*")
+
+# Anonymised
+data <- read.csv("*YOUR CSV FILE HERE*")
+
+data
+```
+
+```{r}
+
+# Part 2: Cleaning data
+# Current issues include blank data points, ///, additional comments at the end or after the weight (e.g. incline, lateral raises)
+# Also multiple weights in single data point, to be converted to 0 reps of previous weight (e.g. 50-5/4, 45-5 --> 50-5/4/0)
+
+
+# Will need to iterate through each data point
+number_of_rows <- nrow(data)
+number_of_columns <- ncol(data)
+
+## number_of_rows
+## number_of_columns
+
+
+# Will convert missing data points to NA
+# This is because using /// else if (is.na(data[j, 1] == TRUE) & data[j, i] == "") /// below will make the blank rows for decorative purposes appear again in the original CSV file, will need to keep missing data points and these blank rows separate
+
+for (i in 2:number_of_columns) {
+  for (j in 1:number_of_rows) {
+    # The first condition prevents the blank rows for decorative purposes from being NA, and the second condition prevents only causes missing data points themselves to become NA
+    if (data[j, 1] != "" & data[j, i] == "") {
+      # NA, not "NA" or else it is considered as simply a string
+      data[j, i] <- NA
+    }
+  }
+}
+
+data
+
+# Converting blank data points and /// into 0-0/0/0, basically indicating no reps and sets to be consistent with the data format
+# Need to work on the NA part first and not the /// part first
+# This is because if doing the /// part first then the NA values will cause an error since these missing values prevent from iterating through the whole thing, hence why when iterating through the whole thing NA needs to be fixed first
+for (i in 2:number_of_columns) {
+  for (j in 1:number_of_rows) {
+    if (is.na(data[j, i] == TRUE)) {
+      data[j, i] <- "0-0/0/0"
+    }
+    else if (data[j, i] == "///") {
+      data[j, i] <- "0-0/0/0"
+    }
+  }
+}
+
+data
+
+# Removing additional comments within the data points
+# Finding instances of " (" up to ")" and then removing these and everything in-between
+# Space before "(" to be included for removal as well for consistency
+# Searched up "r how to remove a string within a string"
+# https://www.geeksforgeeks.org/r-language/remove-parentheses-and-text-within-from-strings-in-r/
+for (i in 2:number_of_columns) {
+  for (j in 1:number_of_rows) {
+    data[j, i] <- gsub("\\s*\\([^\\)]+\\)", "", data[j, i])
+  }
+}
+
+data
+
+# Removing multiple weights in a single data point
+# Searched up "with the string "50-5/4, 45-5" how to remove everything after the comma inclusive in r"
+# https://stackoverflow.com/questions/25307899/r-remove-anything-after-comma-from-column
+# Main answer was gsub("(.*),.*", "\\1", x) but this did not work
+# Comment of "(.*?),.*" removed everything in the data point
+# Comprised (.*?) , .*
+# Three parts, the "," and parts before and after this
+# Thus removing one or the other parts next to "," should work
+# Tried "(.*?)," but this removed everything after the comma as well as the "," itself --> 45-5
+# Tried the other way around with ",.*" and this works --> 50-5/4
+# Can now substitute "/0" in
+for (i in 2:number_of_columns) {
+  for (j in 1:number_of_rows) {
+    # data[j, i] <- gsub("(.*?),", "", data[j, i])
+    # data[j, i] <- gsub(",.*", "", data[j, i])
+    data[j, i] <- gsub(",.*", "/0", data[j, i])
+  }
+}
+
+data
+
+```
+
+```{r}
+# Part 3: Extracting "Sets" and finding the average
+# 3 sets in each data point after the weight, separated by 2 /, e.g. 12/11/10, will find the average (e.g. 11)
+
+
+# Empty variables to represent the three different sets separated by /
+set_1 <- 0
+set_2 <- 0
+set_3 <- 0
+
+
+# Searched up "r 3 numbers separated by slashes how to extract"
+# strsplit()
+# Searched up "strsplit r"
+# https://www.rdocumentation.org/packages/base/versions/3.6.2/topics/strsplit
+# Searched up "r after strsplit how to extract"
+# https://www.tutorialspoint.com/article/how-to-extract-the-split-string-elements-in-r#:~:text=To%20split%20string%20vector%20elements,extract%20the%20element%20after%20splitting.
+# [[1]] and then [2] to extract the 2nd item after strsplit()
+
+### Example using data[1, 2] for initial testing
+## data[1, 2]
+## sets_only_data <- strsplit(data[1, 2], "-")
+## split_sets_data <- strsplit(sets_only_data[[1]][2], "/")
+
+## set_1 <- split_sets_data[[1]][1]
+## set_2 <- split_sets_data[[1]][2]
+## set_3 <- split_sets_data[[1]][3]
+
+# Within ##, this will be put into a double for loop to iterate through each data point, as seen below
+
+# Starting from the second column, so 2:, as the first column is the exercise names
+# 2: and 1: so that the for loop goes from that number up to number_of_columns and number_of_rows, rather than just that single number (e.g. 1 2 3 4 5 rather than just 5)
+
+# Searched up "cat output how to put into a dataframe in r"
+# Presented the idea of putting in into a function, and then using capture.output(function_name)
+# Searched up "how to create a function in r"
+# https://www.w3schools.com/r/r_functions.asp
+# function() {}
+
+# Individual sets also in the output, so every 4 items in the sets_data_with_NA list to be created will represents one original data point
+
+set_1_list <- NA
+set_2_list <- NA
+set_3_list <- NA
+
+sets_function <- function() {
+  for (i in 2:number_of_columns) {
+    for (j in 1:number_of_rows) {
+      sets_only_data <- strsplit(data[j, i], "-")
+      split_sets_data <- strsplit(sets_only_data[[1]][2], "/")
+      set_1 <- split_sets_data[[1]][1]
+      set_2 <- split_sets_data[[1]][2]
+      set_3 <- split_sets_data[[1]][3]
+      # cat(set_1, set_2, set_3, "\n")
+      cat(set_1, "\n")
+      cat(set_2, "\n")
+      cat(set_3, "\n")
+      }
+    # Extra space between columns for better viewing, "\n" works with cat() and not print()
+    cat("\n")
+  }
+  }
+
+# capture.output() captures the output
+sets_data_with_NA <- capture.output(sets_function())
+
+# Need to remove NA NA NA of empty lines
+# Searched up "how to delete items with certain phrases in list in r"
+# filtered_vector <- my_vector[!grepl("apple", my_vector)]
+sets_data_without_NA <- sets_data_with_NA[!grepl("NA", sets_data_with_NA)]
+sets_data_with_NA
+sets_data_without_NA
+
+# Each has an extra space at the end of each item, will remove this for formatting reasons
+# Searched up "how to delete last character in each item of a list in r"
+# https://scales.arabpsychology.com/stats/how-can-i-remove-the-last-character-from-a-string-in-r-can-you-provide-two-examples/
+# substr(df$some_column, 1, nchar(df$some_column)-1)
+sets_data_without_NA_new <- substr(sets_data_without_NA, 1, nchar(sets_data_without_NA)-1)
+
+# Myoreps to be dealt with (e.g. 9+1+1 as a single set to be converted to 11)
+# Lesson learned, need to use 1: or else NA error
+
+# Searched up "how to see if the character + is in a string in r"
+# https://www.geeksforgeeks.org/r-language/how-to-check-if-characters-are-present-in-a-string-in-r/
+
+# Searched up "r how to find + within string using grepl"
+# Lesson learned, for specific characters, such as +, need to use \\ for the literal character as these are also used in regular expressions
+
+# Searched up "how to convert string equations into numeric in r"
+# parse() and then eval()
+# eq_string <- "2 + 3 * 5"
+# numeric_result <- eval(parse(text = eq_string))
+# print(numeric_result) 
+
+# Initial practice, this works
+## string_equation_from_myorep <- "9+1+1"
+## converted_myorep_set <- eval(parse(text = string_equation_from_myorep))
+## a <- converted_myorep_set
+## a
+
+for (i in 1:length(sets_data_without_NA_new)) {
+  if (grepl("\\+", sets_data_without_NA_new[i]) == TRUE) {
+    string_equation_from_myorep <- sets_data_without_NA[i]
+    converted_myorep_set <- eval(parse(text = string_equation_from_myorep))
+    sets_data_without_NA_new[i] <- converted_myorep_set
+  }
+}
+
+sets_data_without_NA_new
+
+# sets_data_without_NA_new currently has "" to separate between columns, need to remove this before going finding the average
+# Will use the number of rows from the data object and then minus by the number of decorative rows, this will be put into number_of_total_exercises
+# NOTE: number_of_different_workouts needs to be changed manually based on the nature of the gym plan
+# The position in the example data are 37, 74, 111, etc
+
+number_of_different_workouts <- 2
+number_of_total_exercises <- nrow(data) - (number_of_different_workouts - 1)
+number_of_total_exercises
+# * 3 as each set is an item within sets_data_without_NA_new
+empty_gap_locations_multiplier <- number_of_total_exercises * 3 + 1
+
+# Searched up "r list how to remove every 37th item"
+# my_list <- as.list(1:100)
+# clean_list <- my_list[-seq(37, length(my_list), by = 37)]
+finalised_sets_data <- sets_data_without_NA_new[-seq(empty_gap_locations_multiplier, length(sets_data_without_NA_new), by = empty_gap_locations_multiplier)]
+sets_data_without_NA_new
+finalised_sets_data
+
+# For some reason, NA appears again for certain numbers in a pattern, but these are normal set numbers
+# Manual fix for now
+# NOTE: Remove as needed
+finalised_sets_data[720] <- 9
+finalised_sets_data[756] <- 0
+finalised_sets_data[792] <- 9
+finalised_sets_data[828] <- 11
+finalised_sets_data[864] <- 12
+finalised_sets_data[900] <- 9
+finalised_sets_data[936] <- 11
+finalised_sets_data[972] <- 12
+
+# Using finalised_sets_data, can now find the average of the 3 sets within each item of the list
+# as.numeric() as they are currently characters, e.g. "9" rather than 9
+# Searched up "list with many numbers in r how to find the average for every 3 numbers"
+# https://stackoverflow.com/questions/38530709/r-calculating-mean-of-every-3-values-in-array-using-a-for-loop
+finalised_sets_data <- as.numeric(finalised_sets_data)
+finalised_sets_data_matrix <- matrix(finalised_sets_data, ncol = 3, byrow = TRUE)
+sets_data_average <- rowMeans(finalised_sets_data_matrix)
+sets_data_average
+# Double check for example data, 28 x 12 data points = 336 which is the length of sets_data_average
+
+
+# After finding the average, need to separate by columns again due to lack of ""
+# Every 12 exercises, use initial column size, which should be 12, to separate between different days
+# Can use the matrix byrows to separate by every 12 in the list
+# Can then use this for stats, once assigned back with the respective weight (will iterate through initial data again and produce a list of just the weights (first instance in each data point to account for multiple weights in a given data point))
+```
+
+
+```{r}
+# Part 4: Integrating the average set data with weights in a data frame
+# Searched up "how to delete a specific item from list in r"
+# https://www.geeksforgeeks.org/r-language/remove-element-from-list-in-r-language/
+# [-7] to remove the decorative blank row between exercises
+# NOTE: This needs to be done manually
+# From example data, list_of_exercises will be 12, and this is also for new_data_number_of_rows
+# new_data_number_of_columns will be based on sets_data_average which represents the number of data points and then divided by length(list_of_exercises) to basically separate by columns (336 / 12 = 28)
+list_of_exercises <- data$X[-7]
+new_data_number_of_rows <- length(list_of_exercises)
+new_data_number_of_columns <- length(sets_data_average) / length(list_of_exercises)
+
+# Searched up "how to create an empty dataframe in r"
+# https://www.reddit.com/r/Rlanguage/comments/10anzd7/how_to_create_an_empty_dataframe/
+new_data <- matrix(nrow = new_data_number_of_rows, ncol = new_data_number_of_columns)
+new_data <- data.frame(new_data)
+new_data[, 1] <- list_of_exercises
+new_data
+
+sets_data_average_counter <- 0
+
+# Must have the rows within the nested loop rather than columns, so that it will iterate vertically fist rather than horizontally
+for (j in 2:new_data_number_of_columns) {
+  for (i in 1:new_data_number_of_rows) {
+    sets_data_average_counter = sets_data_average_counter + 1
+    new_data[i, j] <- sets_data_average[sets_data_average_counter]
+  }
+}
+
+# new_data currently containing only the sets data, will now need to ut the weights data within each data point
+new_data
+
+# Removing the decorative row to assist in creating weights_data below
+# Searched up "r dataframe how to remove specific row"
+# https://codesignal.com/learn/courses/data-manipulation-in-r/lessons/manipulating-data-frames-in-r-adding-and-removing-rows
+# NOTE: Done manually
+data_no_decorative_row <- data[-7, ]
+
+# Creating weights data
+weights_function <- function() {
+  for (i in 2:ncol(data_no_decorative_row)) {
+    for (j in 1:nrow(data_no_decorative_row)) {
+      weights_only_data <- strsplit(data_no_decorative_row[j, i], "-")
+      weights_only <- weights_only_data[[1]][1]
+      # weights_only <- strsplit(data[j, i], "")
+      # weights_only <- weights_only[[1]][2]
+      print(weights_only)
+      }
+  }
+  }
+
+# capture.output() captures the output
+weights_data <- capture.output(weights_function())
+
+# Formatting issues of weight number, removing parts at the start and end
+# Searched up "how to delete the first 6 characters in a string in r"
+# https://pythonexamples.org/r/how-to-remove-first-n-characters-in-string#:~:text=To%20remove%20the%20first%20N,starting%20from%20index%20N%2B1.
+weights_data <- substr(weights_data, 6, nchar(weights_data))
+# Similar to use of substr() previous to remove last character in string
+weights_data <- substr(weights_data, 1, nchar(weights_data)-1)
+
+weights_data
+
+weights_data_counter <- 0
+
+# new_data_2 will hold the weights data rather than the sets data seen in new_data
+new_data_2 <- new_data
+
+for (j in 2:new_data_number_of_columns) {
+  for (i in 1:new_data_number_of_rows) {
+    weights_data_counter = weights_data_counter + 1
+    new_data_2[i, j] <- weights_data[weights_data_counter]
+    }
+}
+
+new_data
+new_data_2
+
+```
+
+```{r}
+# Part 5: Statistics and data visualisation
+
+# Plan will be to use new_data_2 (weights data) to do a plot
+# new_data (sets data) to go from red to green, red being lower end of the weight and green being the higher end
+
+# Searched up "how to flip rows and columns in r"
+# https://stackoverflow.com/questions/33643181/how-do-i-flip-rows-and-columns-in-r
+new_data_2_flipped <- data.frame(t(new_data_2[-1]))
+colnames(new_data_2_flipped) <- new_data_2[, 1]
+
+new_data_2_flipped
+
+
+# Creating a new column in  the flipped data frame to be used as the x axis in the plot
+new_data_2_flipped$session_number <- 0
+
+for (i in 1:nrow(new_data_2_flipped)) {
+  new_data_2_flipped$session_number[i] <- i
+}
+
+library(ggplot2)
+
+## plot(new_data_2_flipped$`Leg extensions`)
+## plot(new_data_2_flipped$`Leg curls`)
+## plot(new_data_2_flipped$`Deadlifts`)
+## plot(new_data_2_flipped$`Pull ups`)
+## plot(new_data_2_flipped$`Rows`)
+## plot(new_data_2_flipped$`Shoulder press`)
+## plot(new_data_2_flipped$`Incline dumbbell press`)
+## plot(new_data_2_flipped$`Bicep curls`)
+## plot(new_data_2_flipped$`Hammer curls`)
+## plot(new_data_2_flipped$`Tricep pushdowns`)
+## plot(new_data_2_flipped$`Tricep extensions`)
+## plot(new_data_2_flipped$`Bicep curls`)
+
+# Searched up "i have a list of numbers showing data in a chronological order how do i plot this in r"
+# Use geom_line() or geom_point() instead of geom_col() and geom_bar()
+# Searched up "ggplot how to make y axis present numbers in order and not by index, already numeric"
+# as.numeric() on the y-axis in aes() so that they y-axis displays in numerical order (e.g. 0, 75, 125) and not by index order (e.g. 0, 125, 75)
+ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Leg extensions`))) +
+  geom_point()
+
+
+ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Leg extensions`))) +
+  geom_jitter(aes(colour = "red"))
+
+# Searched up "how to change geom_point colours for each point"
+# https://r-charts.com/correlation/scatter-plot-ggplot2/#:~:text=The%20colour%20argument%20of%20the,the%20color%20or%20the%20points.&text=If%20you%20want%20to%20colorize,(%20colour%20)%20argument%20of%20aes%20.&text=The%20transparency%20of%20the%20points%20can%20also%20be%20customized%20with%20alpha%20argument.
+# Also came across scale_colour_gradient(), might be a possibility for use
+ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Leg extensions`), colour = as.numeric(`Leg extensions`))) +
+  geom_point()
+
+# THIS GGPLOT() IS TO BE USED, will put sets data (represented as %) into colour within aes()
+
+# Now to work on sets data to change geom_point() colours
+# For new_data (sets data) now, rather than new_data_2
+new_data_flipped <- data.frame(t(new_data[-1]))
+colnames(new_data_flipped) <- new_data[, 1]
+new_data_flipped
+new_data_flipped$session_number <- 0
+for (i in 1:nrow(new_data_flipped)) {
+  new_data_flipped$session_number[i] <- i
+}
+new_data_flipped
+
+# Will convert the data sets data into percentages
+# 0 reps = red, 6 reps = yellow, 12+ reps = green in a scale
+# 0 % = red, 50 % = yellow, 100 % = green
+
+# Searched up "how to change geom_point colours for each point manually"
+# https://stackoverflow.com/questions/72121234/how-to-manually-change-the-color-of-certain-geom-point
+# Idea indirectly thought of from this: Using colour within aes(), this will be = to a new column representing the % values of the reps data
+# Will converted new_data_flipped (sets data) into %, and then add this to new_data_flipped_2 (weights data)
+
+
+# Searched up "how to convert numbers in a data frame to a percentage, with a specific number indicating 100 % in r"
+# library(dplyr)
+# library(scales)
+# df <- data.frame(scores = c(25, 40, 50, 45, 30))
+# target_value <- 50
+# df_numeric <- df %>% mutate(pct_numeric = (scores / target_value) * 100)
+
+# This works
+## library(dplyr)
+## library(scales)
+## max_rep_value <- 12
+## new_data_flipped_percent_converted <- new_data_flipped %>% mutate(`Leg extensions percentage` = (`Leg extensions`/ max_rep_value) * 100)
+## new_data_flipped_percent_converted
+
+library(dplyr)
+library(scales)
+# NOTE: Need to manually change based on personal opinion of what the max reps per set should be
+max_rep_value <- 12
+# NOTE: Exercise names inputted manually, need to change based on exercises used in specific data
+# Initially using new_data_flipped and then the 2nd one onwards it is new_data_flipped_percent_converted being used
+new_data_flipped_percent_converted <- new_data_flipped %>% mutate(`Leg extensions percentage` = (`Leg extensions`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Leg curls percentage` = (`Leg curls`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Deadlifts percentage` = (`Deadlifts`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Pull ups percentage` = (`Pull ups`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Rows percentage` = (`Rows`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Shoulder press percentage` = (`Shoulder press`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Incline dumbbell press percentage` = (`Incline dumbbell press`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Bicep curls percentage` = (`Bicep curls`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Hammer curls percentage` = (`Hammer curls`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Tricep pushdowns percentage` = (`Tricep pushdowns`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Tricep extensions percentage` = (`Tricep extensions`/ max_rep_value) * 100)
+new_data_flipped_percent_converted <- new_data_flipped_percent_converted %>% mutate(`Chest flyes percentage` = (`Chest flyes`/ max_rep_value) * 100)
+
+new_data_flipped_percent_converted
+
+# Any instances of over 100 % to be converted to 100 %
+new_data_flipped_percent_converted_number_of_columns <- ncol(new_data_flipped_percent_converted)
+# NOTE: Done manually, [14:25]
+percentage_columns <- new_data_flipped_percent_converted[, 14:25]
+
+for (i in 1:ncol(percentage_columns)) {
+  for (j in 1:nrow(percentage_columns)) {
+    if (percentage_columns[j, i] > 100) {
+      percentage_columns[j, i] <- 100
+    }
+  }
+}
+
+# new_data_flipped_percent_converted[, 14:25] <- percentage_columns
+# new_data_flipped_percent_converted
+
+
+# Adding percentage sets data columns to weights data columns
+new_data_2_flipped[14:25] <- percentage_columns
+
+# Came across merge.data.frame() function
+# This merges based on the same header names, and changes those that are the same to corresponding .x and .y versions
+## all_data <- merge.data.frame(new_data_2_flipped, new_data_flipped, by = intersect(names(list_of_exercises)))
+## all_data
+## all_data_percent_conversion <- all_data
+
+# Searched up "r ggplot how to change the colour of geom_point based on percentage column"
+# Information found involves colour = the percentage column within aes()
+# Also metnioned size = 3 within geom_point()
+# Also mentioned using scale_colour_gradient(), and within this low = "blue" and high = "red", can have colours assigned
+# Also mentioned using scale_colour_gradient2(), for 3 colours instead
+# Used RStudio help function to find the "midpoint" argument within scale_colout_gradient()
+# scale_colour_viridis_c() also a possibility
+# Also mentioned labels = scales::percent within scale_colour_gradient()
+# NOTE: Plots manually created
+plot1 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Leg extensions`), colour = as.numeric(`Leg extensions percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Leg extensions Data", x = "Session Number", y = "Weight")
+
+plot2 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Leg curls`), colour = as.numeric(`Leg curls percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Leg curls Data", x = "Session Number", y = "Weight")
+
+plot3 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Deadlifts`), colour = as.numeric(`Deadlifts percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Deadlifts Data", x = "Session Number", y = "Weight")
+
+plot4 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Pull ups`), colour = as.numeric(`Pull ups percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Pull ups Data", x = "Session Number", y = "Weight")
+
+plot5 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Rows`), colour = as.numeric(`Rows percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Rows Data", x = "Session Number", y = "Weight")
+
+plot6 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Shoulder press`), colour = as.numeric(`Shoulder press percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Shoulder press Data", x = "Session Number", y = "Weight")
+
+plot7 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Incline dumbbell press`), colour = as.numeric(`Incline dumbbell press percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Incline Dumbbell Press Data", x = "Session Number", y = "Weight")
+
+plot8 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Bicep curls`), colour = as.numeric(`Bicep curls percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Bicep curls Data", x = "Session Number", y = "Weight")
+
+plot9 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Hammer curls`), colour = as.numeric(`Hammer curls percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Hammer curls Data", x = "Session Number", y = "Weight")
+
+plot10 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Tricep pushdowns`), colour = as.numeric(`Tricep pushdowns percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Tricep pushdowns Data", x = "Session Number", y = "Weight")
+
+plot11 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Tricep extensions`), colour = as.numeric(`Tricep extensions percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Tricep extensions Data", x = "Session Number", y = "Weight")
+
+plot12 <- ggplot(new_data_2_flipped, aes(x = session_number, y = as.numeric(`Chest flyes`), colour = as.numeric(`Chest flyes percentage`))) +
+  geom_point(size = 5) +
+  scale_colour_gradient2(low = "red", mid = "yellow", high = "green", midpoint = 50) +
+  labs(title = "Chest flyes Data", x = "Session Number", y = "Weight")
+
+plot1
+plot2
+plot3
+plot4
+plot5
+plot6
+plot7
+plot8
+plot9
+plot10
+plot11
+plot12
+
+```
+
+```{r}
+
+# Part 6: Statistics
+# Plan: Will find if there is a statistically significant difference between the first point and the last point of a given exercise
+# Issue: Sample size of one, cannot do a stat test, but can determine a % change in weight, or if weight is the same, a % change in reps
+
+# Creating new data frame containing only the first row and last rows of new_data_2_flipped
+# nrow = 2 as only 2 rows needed, ncol(new_data_2_flipped to maintain same number of columns (exercises)
+first_and_last_points <- matrix(data = NA, nrow = 2, ncol = ncol(new_data_2_flipped))
+first_and_last_points <- as.data.frame(first_and_last_points)
+first_and_last_points[1, ] <- new_data_2_flipped[1, ]
+first_and_last_points[2, ] <- new_data_2_flipped[nrow(new_data_2_flipped), ]
+
+first_and_last_points
+
+# Weight columns
+## new_data_2_flipped[, 1:12]
+
+# Session number column
+## new_data_2_flipped[, 13]
+
+# Percentage (sets) columns
+## new_data_2_flipped[, 14:25]
+
+# More automated versions and for first_and_last_points
+statistics_weight_columns <- first_and_last_points[, 1:number_of_exercises]
+
+statistics_session_number_columns <- first_and_last_points[, number_of_exercises+1]
+
+statistics_sets_percentage_columns <- first_and_last_points[, (number_of_exercises+2):ncol(first_and_last_points)]
+
+# Assigning back the header names using the associated exercise name
+colnames(statistics_weight_columns) <- list_of_exercises
+
+# Determining % change in weight
+# Will create a third row that displays this
+# e.g. 25 kg to 125 kg --> 125 / 25 * 100 % = 500 %
+# But the % change will be 400 %, so - 100 % afterwards
+# So 2nd row / 1st row * 100 - 100
+# Initial non-numeric issue, thus as.numeric() used as the data was not numeric
+statistics_weight_columns[3, ] <- as.numeric(statistics_weight_columns[2, ]) / as.numeric(statistics_weight_columns[1, ]) * 100 - 100
+
+rownames(statistics_weight_columns) <- c("First Session", "Last Session", "% Change in Weight")
+
+statistics_weight_columns
+
+# Assigning back the header names using the associated exercise name
+colnames(statistics_sets_percentage_columns) <- list_of_exercises
+
+# Determining % change in reps if weight is the same
+# NOTE: Despite already being in percentages, the same equation still works for sets data
+statistics_sets_percentage_columns[3, ] <- as.numeric(statistics_sets_percentage_columns[2, ]) / as.numeric(statistics_sets_percentage_columns[1, ]) * 100 - 100
+
+rownames(statistics_sets_percentage_columns) <- c("First Session", "Last Session", "% Change in Reps")
+
+statistics_sets_percentage_columns
+
+# With % change in sets for both statistics_weight_columns and statistics_sets_percentage_columns, will now combine the two, and for the columns (exercises) with 0 % change in weight, will now determine the % change in reps
+final_statistics_dataframe <- matrix(data = NA, nrow = 6, ncol = ncol(statistics_weight_columns))
+final_statistics_dataframe <- as.data.frame(final_statistics_dataframe)
+
+final_statistics_dataframe[1:3, ] <- statistics_weight_columns
+final_statistics_dataframe[4:6, ] <- statistics_sets_percentage_columns
+
+colnames(final_statistics_dataframe) <- list_of_exercises
+rownames(final_statistics_dataframe) <- c("First Session (Weights)", "Last Session (Weights)", "% Change in Weight", "First Session (Reps)", "Last Session (Reps)", "% Change in Reps")
+
+final_statistics_dataframe
+
+# Data points in reps rows to be labelled as NA if weight is different
+# Using the 1st and 2nd as the condition, detecting when % change in weight is 0 by if these two rows are the same
+# Cannot use 3rd row as it appears as "NaN" when there when initial weight is 0 and last weight is 0
+for (i in 1:ncol(final_statistics_dataframe)) {
+    if (as.numeric(final_statistics_dataframe[1, i]) != as.numeric(final_statistics_dataframe[2, i])) {
+      final_statistics_dataframe[4:6, i] <- "Not Applicable"
+    }
+}
+
+final_statistics_dataframe
+  
+
+```
+
+```{r}
+
+# Part 7: Final outputs
+
+
+plot1
+plot2
+plot3
+plot4
+plot5
+plot6
+plot7
+plot8
+plot9
+plot10
+plot11
+plot12
+
+final_statistics_dataframe
+```
+
